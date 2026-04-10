@@ -734,6 +734,9 @@ function updateNodeStyles(node: DOMNode | DOMText) {
               },
             };
             node.imgEl!.style.display = '';
+            if (node.divBg) {
+              node.divBg.style.visibility = '';
+            }
             applySubTextureScaling(
               node,
               node.imgEl!,
@@ -763,6 +766,10 @@ function updateNodeStyles(node: DOMNode | DOMText) {
               node.imgEl.removeAttribute('data-rawSrc');
             }
 
+            if (node.divBg) {
+              node.divBg.style.visibility = 'hidden';
+            }
+
             const failedSrc =
               node.imgEl?.dataset.pendingSrc || node.lazyImagePendingSrc || '';
 
@@ -786,6 +793,13 @@ function updateNodeStyles(node: DOMNode | DOMText) {
 
         if (hasDivBgTint) {
           node.imgEl.style.visibility = 'hidden';
+          const isMaskReady =
+            node.imgEl.complete &&
+            node.imgEl.dataset.rawSrc === rawImgSrc &&
+            node.imgEl.naturalWidth > 0;
+          node.divBg.style.visibility = isMaskReady ? '' : 'hidden';
+        } else {
+          node.divBg.style.visibility = '';
         }
 
         if (isRenderStateInBounds(node.renderState)) {
@@ -953,6 +967,10 @@ function updateDOMTextSize(node: DOMText): void {
     node.emit('loaded', payload);
     node.loaded = true;
   }
+
+  if (node.div.style.visibility === 'hidden') {
+    node.div.style.visibility = '';
+  }
 }
 
 function updateDOMTextMeasurements() {
@@ -962,6 +980,22 @@ function updateDOMTextMeasurements() {
 
 function shouldTrackContainTextNode(node: DOMText): boolean {
   return node.contain === 'width' || node.contain === 'none';
+}
+
+function shouldHideTextUntilMeasured(node: DOMText): boolean {
+  if (!shouldTrackContainTextNode(node)) return false;
+  if (node.props.w !== 0 || node.props.h !== 0) return false;
+
+  if (node.props.mountX !== 0 || node.props.mountY !== 0) {
+    return true;
+  }
+
+  const parent = node.parent;
+  if (parent instanceof DOMNode) {
+    return parent.mountX !== 0 || parent.mountY !== 0;
+  }
+
+  return false;
 }
 
 function syncContainTextNodeTracking(node: DOMText): void {
@@ -1619,6 +1653,9 @@ class DOMText extends DOMNode {
   ) {
     super(stage, props);
     this.div.innerText = props.text;
+    if (shouldHideTextUntilMeasured(this)) {
+      this.div.style.visibility = 'hidden';
+    }
     syncContainTextNodeTracking(this);
     scheduleUpdateDOMTextMeasurement(this);
   }

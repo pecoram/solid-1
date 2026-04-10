@@ -139,8 +139,8 @@ export function convertToShader(
 }
 
 function getPropertyAlias(name: string) {
-  if (name === 'w') return 'width';
-  if (name === 'h') return 'height';
+  if (name === 'width') return 'w';
+  if (name === 'height') return 'h';
   return name;
 }
 
