@@ -8,6 +8,8 @@ export interface KeepAliveElement {
   owner: s.Owner | null;
   children: s.JSX.Element;
   routeSignal?: s.Signal<unknown>;
+  isAlive?: s.Accessor<boolean>;
+  setIsAlive?: (v: boolean) => void;
   dispose: () => void;
 }
 
@@ -18,11 +20,10 @@ const _storeKeepAlive = (
   map: Map<string, KeepAliveElement>,
   element: KeepAliveElement,
 ): KeepAliveElement | undefined => {
-  if (map.has(element.id)) {
-    console.warn(
-      `[KeepAlive] Element with id "${element.id}" already in cache.`,
-    );
-    return element;
+  const existing = map.get(element.id);
+  if (existing) {
+    Object.assign(existing, element);
+    return existing;
   }
   map.set(element.id, element);
   return element;
@@ -39,8 +40,8 @@ const _removeKeepAlive = (
 ): void => {
   const element = map.get(id);
   if (element) {
-    (element.children as unknown as ElementNode).destroy();
-    element.dispose();
+    (element.children as unknown as ElementNode)?.destroy();
+    element.dispose?.();
     map.delete(id);
   }
 };
@@ -52,8 +53,8 @@ export const removeKeepAliveRoute = (id: string): void =>
 
 const _clearKeepAlive = (map: Map<string, KeepAliveElement>): void => {
   map.forEach((element) => {
-    (element.children as unknown as ElementNode).destroy();
-    element.dispose();
+    (element.children as unknown as ElementNode)?.destroy();
+    element.dispose?.();
   });
   map.clear();
 };
@@ -70,27 +71,34 @@ interface KeepAliveProps {
   transition?: ElementNode['transition'];
 }
 
-function wrapChildren(props: s.ParentProps<KeepAliveProps>) {
-  const onRemove =
+function wrapChildren(
+  props: s.ParentProps<KeepAliveProps>,
+  setIsAlive?: (v: boolean) => void,
+) {
+  const onRemove = chainFunctions(
     props.onRemove ||
-    ((elm: ElementNode) => {
-      elm.alpha = 0;
-    });
-  const onRender =
+      ((elm: ElementNode) => {
+        elm.alpha = 0;
+      }),
+    () => setIsAlive?.(false),
+  );
+  const onRender = chainFunctions(
     props.onRender ||
-    ((elm: ElementNode) => {
-      elm.alpha = 1;
-    });
+      ((elm: ElementNode) => {
+        elm.alpha = 1;
+      }),
+    () => setIsAlive?.(true),
+  );
   const transition = props.transition || { alpha: true };
 
   return (
     <view
+      {...props}
       preserve
       onRemove={onRemove}
       onRender={onRender}
       forwardFocus={0}
       transition={transition}
-      {...props}
     />
   );
 }
@@ -108,25 +116,31 @@ const createKeepAliveComponent = (
         (existing.children as unknown as ElementNode)?.destroyed)
     ) {
       (existing.children as unknown as ElementNode).destroy();
-      existing.dispose();
+      existing.dispose?.();
       map.delete(props.id);
       existing = undefined;
     }
 
-    if (!existing) {
+    if (!existing || !existing.dispose) {
       return s.createRoot((dispose) => {
-        const children = wrapChildren(props);
+        const [isAlive, setIsAlive] =
+          existing?.isAlive && existing?.setIsAlive
+            ? [existing.isAlive, existing.setIsAlive]
+            : s.createSignal(true);
+        const children = wrapChildren(props, setIsAlive);
         storeFn({
           id: props.id,
           owner: s.getOwner(),
           children,
           dispose,
+          isAlive,
+          setIsAlive,
         });
         return children;
       });
     } else if (existing && !existing.children) {
       existing.children = s.runWithOwner(existing.owner, () =>
-        wrapChildren(props),
+        wrapChildren(props, existing!.setIsAlive),
       );
     }
     return existing.children;
@@ -146,15 +160,34 @@ export const KeepAliveRoute = <S extends string>(
   props: RouteProps<S> & {
     id?: string;
     path: string;
-    component: s.Component<RouteProps<S>>;
+    component: (
+      props: RouteProps<S> & { isAlive: s.Accessor<boolean> },
+    ) => s.JSX.Element;
     shouldDispose?: (key: string) => boolean;
     onRemove?: ElementNode['onRemove'];
     onRender?: ElementNode['onRender'];
     transition?: ElementNode['transition'];
+    preload?: (
+      args: RoutePreloadFuncArgs & { isAlive: s.Accessor<boolean> },
+    ) => void;
   },
 ) => {
   const key = props.id || props.path;
   let savedFocusedElement: ElementNode | undefined;
+
+  const getExisting = () => {
+    let existing = keepAliveRouteElements.get(key);
+    if (!existing) {
+      const [isAlive, setIsAlive] = s.createSignal(true);
+      existing = {
+        id: key,
+        isAlive,
+        setIsAlive,
+      } as any;
+      keepAliveRouteElements.set(key, existing!);
+    }
+    return existing!;
+  };
 
   const onRemove = chainFunctions(props.onRemove, (elm: ElementNode) => {
     savedFocusedElement = activeElement() as ElementNode;
@@ -182,31 +215,33 @@ export const KeepAliveRoute = <S extends string>(
 
   const preload = props.preload
     ? (preloadProps: RoutePreloadFuncArgs) => {
-        let existing = keepAliveRouteElements.get(key);
+        let existing = getExisting();
 
         if (
-          existing &&
+          existing.children &&
           (props.shouldDispose?.(key) ||
             (existing.children as unknown as ElementNode)?.destroyed)
         ) {
           (existing.children as unknown as ElementNode).destroy();
-          existing.dispose();
+          existing.dispose?.();
           keepAliveRouteElements.delete(key);
-          existing = undefined;
+          existing = getExisting();
         }
 
-        if (!existing) {
+        if (!existing.dispose) {
           return s.createRoot((dispose) => {
-            storeKeepAliveRoute({
-              id: key,
-              owner: s.getOwner(),
-              dispose,
-              children: null,
-            });
-            return props.preload!(preloadProps);
+            existing.owner = s.getOwner();
+            existing.dispose = dispose;
+            return props.preload!({ ...preloadProps, isAlive: existing.isAlive! });
           });
         } else if (existing.children) {
           (existing.children as unknown as ElementNode)?.setFocus();
+          return props.preload!({ ...preloadProps, isAlive: existing.isAlive! });
+        } else {
+          return props.preload!({
+            ...preloadProps,
+            isAlive: existing.isAlive!,
+          });
         }
       }
     : undefined;
@@ -215,16 +250,19 @@ export const KeepAliveRoute = <S extends string>(
     <Route
       {...props}
       preload={preload}
-      component={(childProps) => (
-        <KeepAliveRouteInternal
-          id={key}
-          onRemove={onRemove}
-          onRender={onRender}
-          transition={props.transition}
-        >
-          {props.component(childProps)}
-        </KeepAliveRouteInternal>
-      )}
+      component={(childProps) => {
+        const existing = getExisting();
+        return (
+          <KeepAliveRouteInternal
+            id={key}
+            onRemove={onRemove}
+            onRender={onRender}
+            transition={props.transition}
+          >
+            {props.component({ ...childProps, isAlive: existing.isAlive! })}
+          </KeepAliveRouteInternal>
+        );
+      }}
     />
   );
 };
