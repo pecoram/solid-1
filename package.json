@@ -72,7 +72,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.16.0",
-    "@lightningjs/renderer": "3.0.0-beta22",
+    "@lightningjs/renderer": "3.0.1",
     "@solid-devtools/debugger": "^0.28.1",
     "@solidjs/testing-library": "^0.8.10",
     "@typescript-eslint/eslint-plugin": "^8.17.0",
@@ -86,8 +86,8 @@
     "jsdom": "^26.1.0",
     "lint-staged": "^15.2.10",
     "prettier": "^3.4.2",
-    "release-it": "^17.10.0",
-    "typescript": "^5.9.2",
+    "release-it": "^17.11.0",
+    "typescript": "^5.9.3",
     "typescript-eslint": "^8.17.0",
     "vite-plugin-solid": "^2.11.6",
     "vitest": "^4.0.9"
@@ -100,8 +100,8 @@
     "*.{js,cjs,md}": "prettier --write"
   },
   "peerDependencies": {
-    "@lightningjs/renderer": "^3.0.0-beta21",
-    "@solidjs/router": "^0.15.1",
+    "@lightningjs/renderer": "^3.0.1",
+    "@solidjs/router": "^0.15.4",
     "solid-js": "*"
   },
   "peerDependenciesMeta": {},
@@ -118,5 +118,5 @@
     "README.md",
     "docs/AI_CODING_GUIDELINES.md"
   ],
-  "packageManager": "pnpm@10.8.0"
+  "packageManager": "pnpm@10.33.0"
 }
